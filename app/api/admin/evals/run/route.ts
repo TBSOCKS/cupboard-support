@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
   for (const c of cases as EvalCase[]) {
     const runResult = await runCase(c, mode);
-    const grade = gradeCase(c, runResult.actual);
+    const grade = gradeCase(c, runResult.actual, mode);
 
     if (grade.overall_passed) passed++;
     totalInputTokens += runResult.input_tokens;
