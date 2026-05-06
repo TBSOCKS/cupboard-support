@@ -1,5 +1,6 @@
 import { triageWithUsage, type IntentCategory } from '@/lib/agents/triage';
 import { runOrderStatusAgent } from '@/lib/agents/order-status';
+import { runReturnsAgent } from '@/lib/agents/returns';
 import type { EvalCase, EvalMode } from './types';
 import { computeCostCents, type ActualOutputs } from './grading';
 
@@ -93,9 +94,13 @@ export async function runCase(
       should_escalate = true;
     } else {
       agent = intentToAgent(intent);
-      // Phase 2: only order_status is built. Other intents fall through
-      // to handoff in the actual chat route.
-      if (agent !== 'order_status' && agent !== 'general') {
+      // Phase 3 in progress: order_status and returns are built.
+      // Other intents (product, account) still fall through to handoff.
+      if (
+        agent !== 'order_status' &&
+        agent !== 'returns' &&
+        agent !== 'general'
+      ) {
         agent = 'human';
         should_escalate = true;
       } else {
@@ -161,6 +166,32 @@ export async function runCase(
           severity = r.severity;
         }
       }
+
+      input_tokens += result.input_tokens;
+      output_tokens += result.output_tokens;
+      cost_cents += computeCostCents(
+        'sonnet',
+        result.input_tokens,
+        result.output_tokens
+      );
+    } else if (agent === 'returns') {
+      const result = await runReturnsAgent({
+        conversationId: '00000000-0000-0000-0000-000000000000',
+        userMessage: ec.customer_message,
+        conversationHistory: ec.previous_assistant_message
+          ? [
+              {
+                role: 'assistant',
+                content: ec.previous_assistant_message,
+              },
+            ]
+          : [],
+        skipLogging: true,
+      });
+
+      tools = result.tool_calls.map((tc) => tc.tool);
+      reply = result.reply;
+      should_escalate = result.should_escalate;
 
       input_tokens += result.input_tokens;
       output_tokens += result.output_tokens;

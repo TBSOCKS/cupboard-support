@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import { triage } from '@/lib/agents/triage';
 import { runOrderStatusAgent } from '@/lib/agents/order-status';
+import { runReturnsAgent } from '@/lib/agents/returns';
 import type { AgentName } from '@/types';
 
 export const runtime = 'nodejs';
@@ -205,9 +206,8 @@ export async function POST(req: NextRequest) {
         });
       }
       // If we're between turns with a specialist, route back to that specialist
-      if (currentAgent === 'order_status') {
-        // fall through to the order status path below by overriding routed_to
-        triageResult.routed_to = 'order_status';
+      if (currentAgent === 'order_status' || currentAgent === 'returns') {
+        triageResult.routed_to = currentAgent;
       } else {
         // No prior agent (rare - shouldn't happen on a real continuation
         // unless the welcome message asked a question). Fall through to
@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
       .update({ current_agent: targetAgent })
       .eq('id', conversationId);
 
-    if (targetAgent !== 'order_status') {
+    if (targetAgent !== 'order_status' && targetAgent !== 'returns') {
       return await handoffToHuman({
         conversationId,
         reason: `${targetAgent} agent not yet implemented (Phase 3)`,
@@ -263,20 +263,27 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================================
-    // 7. Run the Order Status agent
+    // 7. Run the appropriate specialist
     // ========================================================================
-    const result = await runOrderStatusAgent({
-      conversationId,
-      userMessage: message,
-      conversationHistory,
-    });
+    const result =
+      targetAgent === 'order_status'
+        ? await runOrderStatusAgent({
+            conversationId,
+            userMessage: message,
+            conversationHistory,
+          })
+        : await runReturnsAgent({
+            conversationId,
+            userMessage: message,
+            conversationHistory,
+          });
 
     const sanitizedReply = sanitizeOutgoing(result.reply);
 
     await supabase.from('messages').insert({
       conversation_id: conversationId,
       role: 'assistant',
-      agent: 'order_status',
+      agent: targetAgent,
       content: sanitizedReply,
     });
 
@@ -284,7 +291,7 @@ export async function POST(req: NextRequest) {
       await supabase.from('analytics_events').insert({
         conversation_id: conversationId,
         event_type: 'escalation_triggered',
-        agent: 'order_status',
+        agent: targetAgent,
         reason: result.escalate_reason,
       });
       await supabase
@@ -296,7 +303,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       conversationId,
       reply: sanitizedReply,
-      agent: 'order_status',
+      agent: targetAgent,
       kind: 'agent',
       meta: {
         intent: triageResult.intent,
