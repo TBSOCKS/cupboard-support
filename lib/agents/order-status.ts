@@ -144,18 +144,22 @@ export interface OrderStatusResult {
   should_escalate: boolean;
   escalate_reason: string | null;
   turns_used: number;
+  input_tokens: number;
+  output_tokens: number;
 }
 
 interface RunOrderStatusParams {
   conversationId: string;
   userMessage: string;
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** When true, skip writes to analytics_events (used by the eval runner) */
+  skipLogging?: boolean;
 }
 
 export async function runOrderStatusAgent(
   params: RunOrderStatusParams
 ): Promise<OrderStatusResult> {
-  const { conversationId, userMessage, conversationHistory } = params;
+  const { conversationId, userMessage, conversationHistory, skipLogging } = params;
   const anthropic = getAnthropic();
   const supabase = createServerClient();
 
@@ -170,6 +174,8 @@ export async function runOrderStatusAgent(
   const tool_calls: ToolCallEvent[] = [];
   let turns = 0;
   const MAX_TURNS = 5;
+  let total_input_tokens = 0;
+  let total_output_tokens = 0;
 
   while (turns < MAX_TURNS) {
     turns++;
@@ -187,6 +193,9 @@ export async function runOrderStatusAgent(
       tools: ORDER_STATUS_TOOLS,
       messages,
     });
+
+    total_input_tokens += response.usage.input_tokens;
+    total_output_tokens += response.usage.output_tokens;
 
     if (response.stop_reason === 'tool_use') {
       const toolUseBlocks = response.content.filter(
@@ -216,19 +225,21 @@ export async function runOrderStatusAgent(
           succeeded,
         });
 
-        await supabase.from('analytics_events').insert({
-          conversation_id: conversationId,
-          event_type: succeeded ? 'tool_succeeded' : 'tool_failed',
-          agent: 'order_status',
-          metadata: {
-            tool: block.name,
-            input: block.input,
-            result_preview:
-              typeof result === 'object'
-                ? JSON.stringify(result).slice(0, 200)
-                : String(result).slice(0, 200),
-          },
-        });
+        if (!skipLogging) {
+          await supabase.from('analytics_events').insert({
+            conversation_id: conversationId,
+            event_type: succeeded ? 'tool_succeeded' : 'tool_failed',
+            agent: 'order_status',
+            metadata: {
+              tool: block.name,
+              input: block.input,
+              result_preview:
+                typeof result === 'object'
+                  ? JSON.stringify(result).slice(0, 200)
+                  : String(result).slice(0, 200),
+            },
+          });
+        }
 
         toolResults.push({
           type: 'tool_result',
@@ -266,6 +277,8 @@ export async function runOrderStatusAgent(
       should_escalate,
       escalate_reason,
       turns_used: turns,
+      input_tokens: total_input_tokens,
+      output_tokens: total_output_tokens,
     };
   }
 
@@ -276,5 +289,7 @@ export async function runOrderStatusAgent(
     should_escalate: true,
     escalate_reason: `Hit max turns (${MAX_TURNS}) without resolution`,
     turns_used: turns,
+    input_tokens: total_input_tokens,
+    output_tokens: total_output_tokens,
   };
 }

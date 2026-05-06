@@ -105,14 +105,31 @@ For continuation, set confidence high when there's a clear preceding question.
   "escalate_reason": string | null
 }`;
 
+export interface TriageUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
 export async function triage(
   userMessage: string,
   previousAssistantMessage?: string | null
 ): Promise<TriageResult> {
+  const { result } = await triageWithUsage(userMessage, previousAssistantMessage);
+  return result;
+}
+
+/**
+ * Same as triage(), but also returns token usage. Used by the eval runner
+ * for accurate cost reporting.
+ */
+export async function triageWithUsage(
+  userMessage: string,
+  previousAssistantMessage?: string | null
+): Promise<{ result: TriageResult; usage: TriageUsage }> {
   const anthropic = getAnthropic();
 
-  // Build the user message: include the previous assistant message as context
-  // so triage can detect continuation cases.
   const userContent = previousAssistantMessage
     ? `PREVIOUS ASSISTANT MESSAGE: ${previousAssistantMessage}\n\nCUSTOMER MESSAGE: ${userMessage}`
     : userMessage;
@@ -130,6 +147,13 @@ export async function triage(
     messages: [{ role: 'user', content: userContent }],
   });
 
+  const usage: TriageUsage = {
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
+    cache_creation_input_tokens: (response.usage as any).cache_creation_input_tokens,
+    cache_read_input_tokens: (response.usage as any).cache_read_input_tokens,
+  };
+
   const textBlock = response.content.find((b) => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {
     throw new Error('Triage returned no text content');
@@ -145,18 +169,24 @@ export async function triage(
   } catch (err) {
     console.error('Triage JSON parse failed', textBlock.text);
     return {
-      intent: 'unknown',
-      confidence: 0,
-      entities: { order_number: null, email: null, product_sku: null },
-      reasoning: 'Could not parse classifier output',
-      routed_to: 'general',
-      auto_escalate: false,
-      escalate_reason: null,
+      result: {
+        intent: 'unknown',
+        confidence: 0,
+        entities: { order_number: null, email: null, product_sku: null },
+        reasoning: 'Could not parse classifier output',
+        routed_to: 'general',
+        auto_escalate: false,
+        escalate_reason: null,
+      },
+      usage,
     };
   }
 
   return {
-    ...parsed,
-    routed_to: INTENT_TO_AGENT[parsed.intent] ?? 'general',
+    result: {
+      ...parsed,
+      routed_to: INTENT_TO_AGENT[parsed.intent] ?? 'general',
+    },
+    usage,
   };
 }
