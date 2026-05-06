@@ -3,7 +3,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { buildTrackingUrl } from '@/lib/tools/tracking-url';
 
 // ============================================================================
-// TOOL SCHEMAS — what we tell Claude these tools do
+// TOOL SCHEMAS - what we tell Claude these tools do
 // ============================================================================
 
 export const ORDER_STATUS_TOOLS: Anthropic.Tool[] = [
@@ -40,7 +40,7 @@ export const ORDER_STATUS_TOOLS: Anthropic.Tool[] = [
 ];
 
 // ============================================================================
-// TOOL EXECUTORS — what actually runs when Claude calls each tool
+// TOOL EXECUTORS - what actually runs when Claude calls each tool
 // ============================================================================
 
 interface LookupOrderResult {
@@ -151,7 +151,7 @@ export async function get_tracking(
       shipped_at: null,
       estimated_delivery_at: null,
       notes:
-        'No tracking available yet — order has not shipped. Current status: ' +
+        'No tracking available yet - order has not shipped. Current status: ' +
         order.status,
     };
   }
@@ -169,7 +169,7 @@ export async function get_tracking(
 }
 
 // ============================================================================
-// DISPATCHER — runs the right tool by name
+// DISPATCHER - runs the right tool by name
 // ============================================================================
 
 export async function executeOrderStatusTool(

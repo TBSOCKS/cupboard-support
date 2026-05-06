@@ -19,16 +19,38 @@ const NOT_YET_BUILT_REPLY = (agent: AgentName) =>
   `Looks like this is a ${agent.replace(
     '_',
     ' '
-  )} question. That specialist isn't online yet (Phase 3 of this build) — bringing in a teammate for you instead.`;
+  )} question. That specialist isn't online yet (Phase 3 of this build) - bringing in a teammate for you instead.`;
 
 const GIBBERISH_REPLIES = [
-  "If this was a cat walking on the keyboard — meow! 🐱 If not, let me know what's going on and I'll help.",
-  "Looks like that didn't quite come through — could you give it another go? Happy to help with orders, returns, products, or anything else.",
+  "If this was a cat walking on the keyboard - meow! 🐱 If not, let me know what's going on and I'll help.",
+  "Looks like that didn't quite come through - could you give it another go? Happy to help with orders, returns, products, or anything else.",
   "Hmm, I'm not catching that. Try me again? I can help with order status, returns, product questions, or account stuff.",
 ];
 
+// Track the last gibberish reply across requests within the same Node process
+// so we don't repeat ourselves back-to-back. (Resets on cold start, which is
+// fine - users won't notice across sessions.)
+let lastGibberishIndex = -1;
+
 function pickGibberishReply(): string {
-  return GIBBERISH_REPLIES[Math.floor(Math.random() * GIBBERISH_REPLIES.length)];
+  let candidates = GIBBERISH_REPLIES.map((_, i) => i);
+  if (lastGibberishIndex >= 0 && candidates.length > 1) {
+    candidates = candidates.filter((i) => i !== lastGibberishIndex);
+  }
+  const idx = candidates[Math.floor(Math.random() * candidates.length)];
+  lastGibberishIndex = idx;
+  return GIBBERISH_REPLIES[idx];
+}
+
+/**
+ * Strip em dashes from outgoing messages as a brand voice safety net.
+ * The system prompts already instruct agents not to use them, but this
+ * catches cases where the model slips.
+ */
+function sanitizeOutgoing(text: string): string {
+  return text
+    .replace(/\s+\u2014\s+/g, ' - ') // " — " becomes " - "
+    .replace(/\u2014/g, '-'); // bare em dash becomes a hyphen
 }
 
 export async function POST(req: NextRequest) {
@@ -185,11 +207,13 @@ export async function POST(req: NextRequest) {
       conversationHistory,
     });
 
+    const sanitizedReply = sanitizeOutgoing(result.reply);
+
     await supabase.from('messages').insert({
       conversation_id: conversationId,
       role: 'assistant',
       agent: 'order_status',
-      content: result.reply,
+      content: sanitizedReply,
     });
 
     if (result.should_escalate) {
@@ -207,7 +231,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       conversationId,
-      reply: result.reply,
+      reply: sanitizedReply,
       agent: 'order_status',
       kind: 'agent',
       meta: {
@@ -261,7 +285,7 @@ async function handoffToHuman(args: {
 
   // Return as a 'system' kind so the UI renders it as a centered transition
   // notice rather than under the "HUMAN SPECIALIST" label (which was
-  // confusing — the human hasn't actually picked up yet).
+  // confusing - the human hasn't actually picked up yet).
   return NextResponse.json({
     conversationId,
     reply,
