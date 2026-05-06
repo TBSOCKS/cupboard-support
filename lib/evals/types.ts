@@ -10,6 +10,7 @@ export interface EvalCase {
   description: string | null;
   customer_message: string;
   previous_assistant_message: string | null;
+  previous_agent: AgentName | null;
   expected_intent: string | null;
   expected_agent: AgentName | null;
   expected_tools: string[];

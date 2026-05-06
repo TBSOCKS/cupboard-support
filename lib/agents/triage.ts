@@ -68,7 +68,7 @@ When in doubt, prefer 'continuation' for short replies (under 5 words) that foll
 - explicit request for a human, agent, manager, supervisor, person, or representative
 - legal threats: lawsuit, attorney, BBB, sue, lawyer
 - charge disputes or fraud claims
-- threats, abuse, or extremely angry/profane language
+- threats, abuse, or profanity directed at the company, the agent, or the situation. Common profanity (fuck, shit, damn, bullshit, etc.) ALWAYS triggers auto-escalate, even if the rest of the message is otherwise valid (e.g., "where the fuck is my order"). Customers using profanity have already crossed a line that warrants a human, regardless of how clear their underlying request is.
 - mentions of injury, damage to property, or safety issues
 
 Do NOT auto-escalate for gibberish or continuation - those are handled separately.

@@ -83,12 +83,20 @@ export async function runCase(
       agent = 'general';
       should_escalate = false;
     } else if (intent === 'continuation') {
-      // In a real run, the chat route would route back to current_agent.
-      // For eval grading, we treat it as "human" since most continuation
-      // test cases are post-handoff. Eval cases that test mid-specialist
-      // continuation should adjust expected_agent accordingly.
-      agent = 'human';
-      should_escalate = true;
+      // For continuation messages, route back to whoever the customer was
+      // talking to. The case can specify previous_agent for testing
+      // mid-specialist continuations; if not specified, default to human
+      // (most continuation cases are post-handoff).
+      if (
+        ec.previous_agent === 'order_status' ||
+        ec.previous_agent === 'returns'
+      ) {
+        agent = ec.previous_agent;
+        should_escalate = false;
+      } else {
+        agent = 'human';
+        should_escalate = true;
+      }
     } else if (confidence < 0.5) {
       agent = 'human';
       should_escalate = true;
