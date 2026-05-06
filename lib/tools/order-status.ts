@@ -1,6 +1,7 @@
 import { createServerClient } from '@/lib/supabase';
 import type Anthropic from '@anthropic-ai/sdk';
 import { buildTrackingUrl } from '@/lib/tools/tracking-url';
+import { computeSeverity, type SeverityTier } from '@/lib/tools/severity';
 
 // ============================================================================
 // TOOL SCHEMAS - what we tell Claude these tools do
@@ -10,7 +11,7 @@ export const ORDER_STATUS_TOOLS: Anthropic.Tool[] = [
   {
     name: 'lookup_order',
     description:
-      'Look up an order by order number. Returns the order status, items, total, shipping address, and timestamps. Use this when the customer mentions an order number (format: CB-NNNNNN). If they have not provided one, ask for it before calling this tool.',
+      'Look up an order by order number. Returns the order status, items, total, shipping address, timestamps, AND a computed severity tier (low/moderate/high/critical) with a reason. Use the severity to choose your empathy register per the system prompt. Use this when the customer mentions an order number (format: CB-NNNNNN). If they have not provided one, ask for it before calling this tool.',
     input_schema: {
       type: 'object',
       properties: {
@@ -55,6 +56,8 @@ interface LookupOrderResult {
   shipping_address?: string;
   items?: Array<{ name: string; quantity: number }>;
   notes?: string | null;
+  severity?: SeverityTier;
+  severity_reason?: string;
   error?: string;
 }
 
@@ -89,6 +92,14 @@ export async function lookup_order(
     .select('quantity, products(name)')
     .eq('order_id', order.id);
 
+  const severity = computeSeverity({
+    status: order.status,
+    ordered_at: order.ordered_at,
+    estimated_delivery_at: order.estimated_delivery_at,
+    delivered_at: order.delivered_at,
+    notes: order.notes,
+  });
+
   return {
     found: true,
     order_number: order.order_number,
@@ -105,6 +116,8 @@ export async function lookup_order(
         quantity: it.quantity,
       })) ?? [],
     notes: order.notes,
+    severity: severity.tier,
+    severity_reason: severity.reason,
   };
 }
 

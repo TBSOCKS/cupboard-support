@@ -43,14 +43,29 @@ function pickGibberishReply(): string {
 }
 
 /**
- * Strip em dashes from outgoing messages as a brand voice safety net.
- * The system prompts already instruct agents not to use them, but this
- * catches cases where the model slips.
+ * Strip brand-voice violations from outgoing messages as a safety net.
+ * The system prompts already instruct agents on these rules, but this
+ * catches cases where the model slips. Centralizing here means we can
+ * add new rules in one place rather than updating every prompt.
  */
 function sanitizeOutgoing(text: string): string {
-  return text
-    .replace(/\s+\u2014\s+/g, ' - ') // " — " becomes " - "
-    .replace(/\u2014/g, '-'); // bare em dash becomes a hyphen
+  return (
+    text
+      // em dashes -> hyphens
+      .replace(/\s+\u2014\s+/g, ' - ')
+      .replace(/\u2014/g, '-')
+      // "genuinely" reads as filler. Strip it in the constructions where
+      // it most often shows up, preserving the original casing of the
+      // surrounding words.
+      .replace(
+        /\b(that's|I'm|it's|this is|we're|you're)\s+genuinely\s+/gi,
+        '$1 really '
+      )
+      .replace(
+        /\bgenuinely\s+(frustrating|frustrated|annoying|sorry|appreciate|understand|hard|important|happy|excited)\b/gi,
+        'really $1'
+      )
+  );
 }
 
 export async function POST(req: NextRequest) {
