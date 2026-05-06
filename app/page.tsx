@@ -125,9 +125,12 @@ export default function Home() {
               <div className="text-xs text-cupboard-warm">Support</div>
             </div>
           </div>
-          <div className="text-xs text-cupboard-warm hidden sm:block">
-            Mon–Fri, 9am–6pm ET
-          </div>
+          <a
+            href="/dashboard"
+            className="text-xs text-cupboard-warm hover:text-cupboard-deep hover:underline"
+          >
+            View support insights →
+          </a>
         </div>
       </header>
 
