@@ -5,7 +5,7 @@ import { runOrderStatusAgent } from '@/lib/agents/order-status';
 import type { AgentName } from '@/types';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30; // give tool loops time to run
+export const maxDuration = 30;
 
 interface ChatRequest {
   conversationId: string | null;
@@ -13,13 +13,23 @@ interface ChatRequest {
 }
 
 const HUMAN_HANDOFF_REPLY =
-  "I'm connecting you with one of our human specialists. They'll have full context on this conversation and can help you from here. You may see a brief delay while they pick up.";
+  "Connecting you with one of our teammates now. They'll have full context on this conversation and can help you from here.";
 
 const NOT_YET_BUILT_REPLY = (agent: AgentName) =>
-  `Got it — based on your message, this looks like a ${agent.replace(
+  `Looks like this is a ${agent.replace(
     '_',
     ' '
-  )} question. That specialist agent isn't online yet (Phase 3 of this build). For now, I'll route you to a human who can help.`;
+  )} question. That specialist isn't online yet (Phase 3 of this build) — bringing in a teammate for you instead.`;
+
+const GIBBERISH_REPLIES = [
+  "If this was a cat walking on the keyboard — meow! 🐱 If not, let me know what's going on and I'll help.",
+  "Looks like that didn't quite come through — could you give it another go? Happy to help with orders, returns, products, or anything else.",
+  "Hmm, I'm not catching that. Try me again? I can help with order status, returns, product questions, or account stuff.",
+];
+
+function pickGibberishReply(): string {
+  return GIBBERISH_REPLIES[Math.floor(Math.random() * GIBBERISH_REPLIES.length)];
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,7 +77,6 @@ export async function POST(req: NextRequest) {
       content: message,
     });
 
-    // Pull conversation history for the specialist (last ~10 messages)
     const { data: history } = await supabase
       .from('messages')
       .select('role, content')
@@ -75,10 +84,8 @@ export async function POST(req: NextRequest) {
       .order('created_at', { ascending: true })
       .limit(20);
 
-    // Exclude the message we just inserted (we'll pass it separately)
-    // and only include user/assistant turns
     const conversationHistory = (history ?? [])
-      .slice(0, -1) // drop the just-inserted user message
+      .slice(0, -1)
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
@@ -104,10 +111,28 @@ export async function POST(req: NextRequest) {
     });
 
     // ========================================================================
-    // 4. Check escalation triggers
+    // 4. Special-case: gibberish gets a playful reply, not an escalation
     // ========================================================================
+    if (triageResult.intent === 'gibberish') {
+      const reply = pickGibberishReply();
+      await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        role: 'assistant',
+        agent: 'general',
+        content: reply,
+      });
+      return NextResponse.json({
+        conversationId,
+        reply,
+        agent: 'general',
+        kind: 'agent',
+        meta: { intent: 'gibberish' },
+      });
+    }
 
-    // Auto-escalate (explicit human request, legal threats, etc.)
+    // ========================================================================
+    // 5. Auto-escalation triggers
+    // ========================================================================
     if (triageResult.auto_escalate) {
       return await handoffToHuman({
         conversationId,
@@ -116,7 +141,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Low-confidence escalation
     if (triageResult.confidence < 0.5) {
       return await handoffToHuman({
         conversationId,
@@ -126,7 +150,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================================
-    // 5. Route to specialist
+    // 6. Route to specialist
     // ========================================================================
     const targetAgent = triageResult.routed_to;
 
@@ -143,8 +167,6 @@ export async function POST(req: NextRequest) {
       .update({ current_agent: targetAgent })
       .eq('id', conversationId);
 
-    // Phase 2: only Order Status is built. Other intents get the
-    // "not yet built, escalating" treatment.
     if (targetAgent !== 'order_status') {
       return await handoffToHuman({
         conversationId,
@@ -155,7 +177,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ========================================================================
-    // 6. Run the Order Status agent
+    // 7. Run the Order Status agent
     // ========================================================================
     const result = await runOrderStatusAgent({
       conversationId,
@@ -163,7 +185,6 @@ export async function POST(req: NextRequest) {
       conversationHistory,
     });
 
-    // Log the agent's final reply
     await supabase.from('messages').insert({
       conversation_id: conversationId,
       role: 'assistant',
@@ -171,7 +192,6 @@ export async function POST(req: NextRequest) {
       content: result.reply,
     });
 
-    // If the agent decided to escalate, hand off
     if (result.should_escalate) {
       await supabase.from('analytics_events').insert({
         conversation_id: conversationId,
@@ -189,6 +209,7 @@ export async function POST(req: NextRequest) {
       conversationId,
       reply: result.reply,
       agent: 'order_status',
+      kind: 'agent',
       meta: {
         intent: triageResult.intent,
         confidence: triageResult.confidence,
@@ -238,10 +259,14 @@ async function handoffToHuman(args: {
     content: reply,
   });
 
+  // Return as a 'system' kind so the UI renders it as a centered transition
+  // notice rather than under the "HUMAN SPECIALIST" label (which was
+  // confusing — the human hasn't actually picked up yet).
   return NextResponse.json({
     conversationId,
     reply,
     agent: 'human',
+    kind: 'system',
     meta: { escalated: true, reason },
   });
 }

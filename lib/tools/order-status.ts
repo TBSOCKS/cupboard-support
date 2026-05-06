@@ -1,5 +1,6 @@
 import { createServerClient } from '@/lib/supabase';
 import type Anthropic from '@anthropic-ai/sdk';
+import { buildTrackingUrl } from '@/lib/tools/tracking-url';
 
 // ============================================================================
 // TOOL SCHEMAS — what we tell Claude these tools do
@@ -24,7 +25,7 @@ export const ORDER_STATUS_TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_tracking',
     description:
-      'Get carrier tracking details for an order, including carrier name, tracking number, and current estimated delivery date. Only call this AFTER you have confirmed the order exists via lookup_order.',
+      'Get carrier tracking details for an order, including carrier name, tracking number, a public tracking URL, and current estimated delivery date. Only call this AFTER you have confirmed the order exists via lookup_order. The tracking_url field, when present, should be used as the link target when you mention the tracking number to the customer.',
     input_schema: {
       type: 'object',
       properties: {
@@ -62,7 +63,6 @@ export async function lookup_order(
 ): Promise<LookupOrderResult> {
   const supabase = createServerClient();
 
-  // Normalize: user might type "187234" or "cb-187234" or "CB187234"
   const normalized = order_number.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const formatted = normalized.startsWith('CB')
     ? `CB-${normalized.slice(2)}`
@@ -71,7 +71,7 @@ export async function lookup_order(
   const { data: order, error } = await supabase
     .from('orders')
     .select(
-      'order_number, status, ordered_at, shipped_at, delivered_at, estimated_delivery_at, total_cents, shipping_address, notes'
+      'id, order_number, status, ordered_at, shipped_at, delivered_at, estimated_delivery_at, total_cents, shipping_address, notes'
     )
     .eq('order_number', formatted)
     .maybeSingle();
@@ -84,20 +84,10 @@ export async function lookup_order(
     return { found: false, error: `No order found with number ${formatted}` };
   }
 
-  // Get the items
   const { data: items } = await supabase
     .from('order_items')
     .select('quantity, products(name)')
-    .eq(
-      'order_id',
-      (
-        await supabase
-          .from('orders')
-          .select('id')
-          .eq('order_number', formatted)
-          .single()
-      ).data?.id
-    );
+    .eq('order_id', order.id);
 
   return {
     found: true,
@@ -122,6 +112,7 @@ interface GetTrackingResult {
   found: boolean;
   carrier?: string | null;
   tracking_number?: string | null;
+  tracking_url?: string | null;
   status?: string;
   estimated_delivery_at?: string | null;
   shipped_at?: string | null;
@@ -156,6 +147,7 @@ export async function get_tracking(
       status: order.status,
       carrier: null,
       tracking_number: null,
+      tracking_url: null,
       shipped_at: null,
       estimated_delivery_at: null,
       notes:
@@ -168,6 +160,7 @@ export async function get_tracking(
     found: true,
     carrier: order.carrier,
     tracking_number: order.tracking_number,
+    tracking_url: buildTrackingUrl(order.carrier, order.tracking_number),
     status: order.status,
     estimated_delivery_at: order.estimated_delivery_at,
     shipped_at: order.shipped_at,

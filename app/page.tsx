@@ -2,11 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { MarkdownText } from '@/app/components/MarkdownText';
 import type { AgentName } from '@/types';
+
+type MessageKind = 'user' | 'agent' | 'system';
 
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  kind: MessageKind;
   agent: AgentName | null;
   content: string;
 }
@@ -18,14 +21,14 @@ const AGENT_LABELS: Record<AgentName, string> = {
   product: 'Product Specialist',
   account: 'Account & Billing',
   general: 'Cupboard Support',
-  human: 'Human Specialist',
+  human: 'Cupboard Support',
 };
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
-      role: 'assistant',
+      kind: 'agent',
       agent: 'general',
       content:
         "Welcome to Cupboard. I'm here to help with orders, returns, products, or anything else. What can I help you with today?",
@@ -50,7 +53,7 @@ export default function Home() {
 
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
-      role: 'user',
+      kind: 'user',
       agent: null,
       content: trimmed,
     };
@@ -75,11 +78,16 @@ export default function Home() {
         setConversationId(data.conversationId);
       }
 
+      // The route may return either an agent reply or a handoff system message.
+      // The 'kind' field on the response signals which is which.
+      const messageKind: MessageKind =
+        data.kind === 'system' ? 'system' : 'agent';
+
       setMessages((m) => [
         ...m,
         {
           id: crypto.randomUUID(),
-          role: 'assistant',
+          kind: messageKind,
           agent: data.agent ?? 'general',
           content: data.reply,
         },
@@ -90,7 +98,7 @@ export default function Home() {
         ...m,
         {
           id: crypto.randomUUID(),
-          role: 'assistant',
+          kind: 'agent',
           agent: 'general',
           content:
             'Sorry, something went wrong on our end. Please try again in a moment.',
@@ -125,12 +133,9 @@ export default function Home() {
 
       {/* Chat area */}
       <div className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col">
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto space-y-4 pb-4"
-        >
+        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 pb-4">
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageView key={msg.id} message={msg} />
           ))}
           {isSending && <TypingIndicator />}
         </div>
@@ -176,8 +181,12 @@ export default function Home() {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
-  const isUser = message.role === 'user';
+function MessageView({ message }: { message: ChatMessage }) {
+  if (message.kind === 'system') {
+    return <SystemNotice content={message.content} />;
+  }
+
+  const isUser = message.kind === 'user';
   const agentLabel =
     message.agent && !isUser ? AGENT_LABELS[message.agent] : null;
 
@@ -197,7 +206,31 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               : 'bg-white border border-cupboard-stone text-cupboard-deep'
           )}
         >
-          {message.content}
+          {isUser ? (
+            message.content
+          ) : (
+            <MarkdownText text={message.content} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * System notices render centered with a subtle background — used for
+ * "transferring to a teammate", "agent picked up", and other state changes
+ * that aren't messages from a person or an agent.
+ */
+function SystemNotice({ content }: { content: string }) {
+  return (
+    <div className="flex justify-center py-1">
+      <div className="max-w-[85%] sm:max-w-[75%] rounded-md bg-cupboard-stone/50 px-4 py-2 text-center">
+        <div className="text-[11px] uppercase tracking-wider text-cupboard-warm mb-0.5">
+          Transferring
+        </div>
+        <div className="text-sm text-cupboard-deep leading-relaxed">
+          <MarkdownText text={content} />
         </div>
       </div>
     </div>
