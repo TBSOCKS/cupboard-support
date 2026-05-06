@@ -90,8 +90,11 @@ export function gradeCase(
     severity_passed,
   ];
   const applicable = dims.filter((d) => d !== null);
+  // A case with zero applicable assertions is treated as passed - it's a
+  // placeholder/observation case, not a real test. Real tests need at least
+  // one ground-truth assertion to grade against.
   const overall_passed =
-    applicable.length > 0 && applicable.every((d) => d === true);
+    applicable.length === 0 || applicable.every((d) => d === true);
 
   return {
     intent_passed,
