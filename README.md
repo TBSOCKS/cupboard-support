@@ -116,9 +116,29 @@ The seed script creates realistic edge cases on purpose. The demo will be much m
 
 These are the cases where naive bots fall apart. A good multi-agent system handles them gracefully — either by resolving correctly or by escalating with full context.
 
+## Deliberate scope choices
+
+A few things this system does NOT do, by design. Calling them out so a reader can see what was considered and chosen against, vs. simply missed:
+
+### Identity verification
+
+In a real production support bot, you can't let anyone who knows or guesses an order number initiate returns, change addresses, or cancel orders. Every real CX system has identity verification — usually email-on-account match, sometimes order number + zip code, sometimes a magic link. This demo skips that layer. Why: implementing real auth turns the project from "AI agent system" into "AI agent system + auth layer," which doubles the surface area without adding much to the architectural story. In a real deployment, the chat would require a logged-in session OR a verification step before any write action (initiate_return, address change, etc.).
+
+### Real returns workflow
+
+The schema represents returns as a few fields on the `orders` table. A real returns workflow has its own table with line items (which products are being returned), inspection states (received → inspected → approved/denied), restocking fees, exchange routing, etc. Cupboard models the customer-visible state only; everything else is out of scope.
+
+### Real attachments / image handling
+
+When the agent asks the customer to share a photo of damage, our chat UI doesn't actually accept attachments. The customer asking is still useful behavior (they can describe the damage, screenshot it for the human teammate, etc.), but a production system would handle file uploads with virus scanning, size limits, and storage.
+
+### Real auth on the admin page
+
+The `/admin` route is gated by a sessionStorage acknowledgment ("Are you sure?"). A token-burning visitor could click through it. Real auth was scoped out for the same reason as customer identity verification — different project.
+
 ## What this is not
 
-- A production support system. The seed data is fake, the policies are fictional, and there's no auth.
+- A production support system. The seed data is fake, the policies are fictional.
 - A wrapper around an off-the-shelf agent framework. Everything is built directly against the Claude API to keep the architecture transparent.
 - A solo Claude prompt with a fancy name.
 
