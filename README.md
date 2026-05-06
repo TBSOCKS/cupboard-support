@@ -4,7 +4,9 @@ A multi-agent customer support system for a fictional home goods store. Built fr
 
 **Stack:** Next.js 14 · Supabase · Claude API (Haiku for triage, Sonnet for specialists) · Vercel · TypeScript · Tailwind
 
-**Live:** [cupboard-support.vercel.app](#) · **Dashboard:** [/dashboard](#) · **Demo:** [video link]
+**Live:** [cupboard-support.vercel.app](https://cupboard-support.vercel.app) · **Dashboard:** [cupboard-support.vercel.app/dashboard](https://cupboard-support.vercel.app/dashboard)
+
+![Cupboard Support demo](./demo.gif)
 
 ---
 
