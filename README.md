@@ -4,7 +4,7 @@ A multi-agent customer support system for a fictional e-commerce home goods stor
 
 **Stack:** Next.js 14 · Supabase · Claude API · Vercel · TypeScript · Tailwind
 
-**Status:** Phase 1 complete (data layer + chat UI shell). Phase 2 next (triage agent + Order Status specialist).
+**Status:** Phase 2 complete (triage agent + Order Status specialist + tool use). Phase 3 next (remaining specialists).
 
 ---
 
@@ -66,7 +66,8 @@ A conversation hands off to a human when **any** of these fire:
 | Phase | Status | Scope |
 |-------|--------|-------|
 | 1. Data layer + chat shell | ✅ Done | Schema, seed data, chat UI, conversation logging |
-| 2. Triage + Order Status | 🔜 Next | First specialist agent, tool use, RAG plumbing |
+| 2. Triage + Order Status | ✅ Done | First specialist agent, tool use, RAG plumbing |
+| 2.5. Eval tool | 🔜 Next | Admin page for labeled test cases + accuracy metrics |
 | 3. Remaining specialists | | Returns, Product, Account, General + handoff logic |
 | 4. Analytics dashboard | | Volume, deflection, escalation reasons, opportunity finder |
 | 5. Polish + writeup | | Demo video, blog post, portfolio polish |
