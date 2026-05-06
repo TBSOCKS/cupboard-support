@@ -129,10 +129,26 @@ export async function POST(req: NextRequest) {
         content: m.content,
       }));
 
+    // Find the most recent assistant message - triage uses it to detect
+    // continuation cases (short replies to a question).
+    const lastAssistantMessage =
+      conversationHistory.filter((m) => m.role === 'assistant').slice(-1)[0]
+        ?.content ?? null;
+
+    // Look up the conversation's current_agent so we can stick with it on
+    // continuation messages.
+    const { data: convRow } = await supabase
+      .from('conversations')
+      .select('current_agent, status')
+      .eq('id', conversationId)
+      .maybeSingle();
+    const currentAgent: AgentName | null =
+      (convRow?.current_agent as AgentName) ?? null;
+
     // ========================================================================
     // 3. Triage the incoming message
     // ========================================================================
-    const triageResult = await triage(message);
+    const triageResult = await triage(message, lastAssistantMessage);
 
     await supabase.from('analytics_events').insert({
       conversation_id: conversationId,
@@ -165,6 +181,39 @@ export async function POST(req: NextRequest) {
         kind: 'agent',
         meta: { intent: 'gibberish' },
       });
+    }
+
+    // ========================================================================
+    // 4.5. Special-case: continuation - reuse the current agent
+    // ========================================================================
+    // The customer is responding to something the assistant just asked.
+    // Don't re-classify their topic; keep them with whoever they were
+    // talking to. If they were already handed off to a human, continue
+    // the handoff treatment.
+    if (triageResult.intent === 'continuation') {
+      // If we've already handed off, every continuation message stays handed off
+      if (
+        currentAgent === 'human' ||
+        convRow?.status === 'escalated_to_human'
+      ) {
+        return await handoffToHuman({
+          conversationId,
+          reason: 'Customer continuation after handoff - waiting for human',
+          eventType: 'handoff_to_human',
+          customReply:
+            "Got it - I've passed that along. A teammate will be with you shortly.",
+        });
+      }
+      // If we're between turns with a specialist, route back to that specialist
+      if (currentAgent === 'order_status') {
+        // fall through to the order status path below by overriding routed_to
+        triageResult.routed_to = 'order_status';
+      } else {
+        // No prior agent (rare - shouldn't happen on a real continuation
+        // unless the welcome message asked a question). Fall through to
+        // routing by inferred entities or just go to general.
+        triageResult.routed_to = currentAgent ?? 'general';
+      }
     }
 
     // ========================================================================

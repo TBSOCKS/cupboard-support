@@ -8,6 +8,7 @@ export type IntentCategory =
   | 'account'
   | 'general'
   | 'gibberish'
+  | 'continuation'
   | 'unknown';
 
 export interface TriageResult {
@@ -24,15 +25,16 @@ export interface TriageResult {
   escalate_reason: string | null;
 }
 
-// Map intent → specialist agent. 'gibberish' has no specialist -
-// the chat route handles it with a special playful response.
+// Map intent → specialist agent. 'gibberish' and 'continuation' have no
+// specialist - the chat route intercepts them before routing.
 const INTENT_TO_AGENT: Record<IntentCategory, AgentName> = {
   order_status: 'order_status',
   returns: 'returns',
   product: 'product',
   account: 'account',
   general: 'general',
-  gibberish: 'general', // unused - chat route intercepts before routing
+  gibberish: 'general', // unused - chat route intercepts
+  continuation: 'general', // unused - chat route intercepts and reuses current_agent
   unknown: 'general',
 };
 
@@ -48,7 +50,18 @@ You output JSON only - no prose, no preamble, no markdown fences.
 - account: login issues, payment methods, subscription/membership, charge disputes, address changes
 - general: shipping policies, return windows, store hours, gift cards, anything policy/FAQ-flavored
 - gibberish: input that looks like accidental typing - keyboard mashes ("sdkjfh", "asdfasdf"), random characters, no recognizable words. Distinct from "unknown" - gibberish is clearly NOT a real attempt to communicate.
+- continuation: the customer's message is a short reply (1-3 words, or a brief sentence) that responds to something the assistant just asked. The message only makes sense in context of the previous turn. Examples: "yes", "no", "refund", "the second one", "5/3 if it helps". Use this when the customer is clearly answering a clarifying question rather than starting a new topic.
 - unknown: a real attempt to communicate that you cannot confidently classify into any of the above
+
+# IMPORTANT: continuation vs new topic
+
+If you see PREVIOUS ASSISTANT MESSAGE in the input, check whether the customer's new message is responding to a question in that previous message. If yes, classify as 'continuation' regardless of what individual words appear. Example:
+
+  PREVIOUS ASSISTANT: "Would you prefer a replacement or a refund?"
+  CUSTOMER: "refund"
+  -> intent = 'continuation' (NOT 'returns', because they're answering the assistant's question, not starting a new returns flow)
+
+When in doubt, prefer 'continuation' for short replies (under 5 words) that follow a question.
 
 # Auto-escalate to a human (set auto_escalate=true) if the message contains any of:
 
@@ -58,7 +71,7 @@ You output JSON only - no prose, no preamble, no markdown fences.
 - threats, abuse, or extremely angry/profane language
 - mentions of injury, damage to property, or safety issues
 
-Do NOT auto-escalate for gibberish - that's handled separately.
+Do NOT auto-escalate for gibberish or continuation - those are handled separately.
 
 # Entity extraction
 
@@ -74,12 +87,13 @@ Extract from the message:
 - 0.5-0.7: best guess, multiple plausible intents
 - below 0.5: cannot confidently classify (use unknown)
 
-For gibberish, set confidence high (0.9+) - you ARE confident it's gibberish, just like you'd be confident about any other classification.
+For gibberish, set confidence high (0.9+) - you ARE confident it's gibberish.
+For continuation, set confidence high when there's a clear preceding question.
 
 # Output schema (return EXACTLY this shape)
 
 {
-  "intent": "order_status" | "returns" | "product" | "account" | "general" | "gibberish" | "unknown",
+  "intent": "order_status" | "returns" | "product" | "account" | "general" | "gibberish" | "continuation" | "unknown",
   "confidence": 0.0-1.0,
   "entities": {
     "order_number": string | null,
@@ -91,8 +105,17 @@ For gibberish, set confidence high (0.9+) - you ARE confident it's gibberish, ju
   "escalate_reason": string | null
 }`;
 
-export async function triage(userMessage: string): Promise<TriageResult> {
+export async function triage(
+  userMessage: string,
+  previousAssistantMessage?: string | null
+): Promise<TriageResult> {
   const anthropic = getAnthropic();
+
+  // Build the user message: include the previous assistant message as context
+  // so triage can detect continuation cases.
+  const userContent = previousAssistantMessage
+    ? `PREVIOUS ASSISTANT MESSAGE: ${previousAssistantMessage}\n\nCUSTOMER MESSAGE: ${userMessage}`
+    : userMessage;
 
   const response = await anthropic.messages.create({
     model: MODELS.triage,
@@ -104,7 +127,7 @@ export async function triage(userMessage: string): Promise<TriageResult> {
         cache_control: { type: 'ephemeral' },
       },
     ],
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [{ role: 'user', content: userContent }],
   });
 
   const textBlock = response.content.find((b) => b.type === 'text');

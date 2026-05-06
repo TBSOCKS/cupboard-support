@@ -40,6 +40,8 @@ export function computeSeverity(
   now: Date = new Date()
 ): SeverityResult {
   const status = order.status.toLowerCase();
+  const orderedAt = new Date(order.ordered_at);
+  const totalWaitDays = daysBetween(now, orderedAt);
 
   // ==========================================================================
   // CRITICAL: ownership posture required
@@ -59,7 +61,6 @@ export function computeSeverity(
     const delivered = new Date(order.delivered_at);
     const daysSince = daysBetween(now, delivered);
     if (daysSince <= 14) {
-      // Recent delivery - if customer is asking about it, likely a dispute
       return {
         tier: 'low',
         reason: `Delivered ${daysSince} day(s) ago. If customer disputes receipt, treat as critical.`,
@@ -71,6 +72,8 @@ export function computeSeverity(
   // ==========================================================================
   // HIGH: firm validation required
   // ==========================================================================
+
+  // Order is meaningfully past its ETA (regardless of total wait time).
   if (status === 'delayed' && order.estimated_delivery_at) {
     const eta = new Date(order.estimated_delivery_at);
     const daysOverdue = daysBetween(now, eta);
@@ -78,9 +81,35 @@ export function computeSeverity(
     if (daysOverdue >= 4) {
       return {
         tier: 'high',
-        reason: `${daysOverdue} day(s) past original ETA, status: delayed`,
+        reason: `${daysOverdue} day(s) past ETA, status: delayed`,
       };
     }
+  }
+
+  // Shipped/in-transit but well past ETA = stuck somewhere
+  if (
+    (status === 'shipped' || status === 'in_transit') &&
+    order.estimated_delivery_at
+  ) {
+    const eta = new Date(order.estimated_delivery_at);
+    const daysOverdue = daysBetween(now, eta);
+    if (daysOverdue >= 4) {
+      return {
+        tier: 'high',
+        reason: `${daysOverdue} day(s) past ETA, still in transit`,
+      };
+    }
+  }
+
+  // The customer has been waiting a long time since they ordered, regardless
+  // of where the ETA currently sits. A 3-week+ wait is high-severity even if
+  // the latest ETA was recently pushed.
+  if (totalWaitDays >= 21 && status !== 'delivered' && status !== 'cancelled' &&
+      status !== 'returned' && status !== 'refunded') {
+    return {
+      tier: 'high',
+      reason: `Customer has been waiting ${totalWaitDays} days since ordering`,
+    };
   }
 
   // Address verification holds tend to drag - flag as high
@@ -97,32 +126,38 @@ export function computeSeverity(
   // ==========================================================================
   // MODERATE: light acknowledgment
   // ==========================================================================
-  if (status === 'delayed') {
-    return {
-      tier: 'moderate',
-      reason: 'Status: delayed, but within reasonable window',
-    };
-  }
 
-  // Shipped but past ETA by a small amount
+  // Shipped but past ETA by a small amount (1-3 days)
   if (
     (status === 'shipped' || status === 'in_transit') &&
     order.estimated_delivery_at
   ) {
     const eta = new Date(order.estimated_delivery_at);
     const daysOverdue = daysBetween(now, eta);
-    if (daysOverdue >= 4) {
-      return {
-        tier: 'high',
-        reason: `${daysOverdue} day(s) past ETA, still in transit`,
-      };
-    }
     if (daysOverdue >= 1) {
       return {
         tier: 'moderate',
         reason: `${daysOverdue} day(s) past ETA, still in transit`,
       };
     }
+  }
+
+  // 14-20 day wait, still in flight - moderate (would have been caught above
+  // if past ETA; this is the case where ETA is still in the future but the
+  // wait has gotten long)
+  if (totalWaitDays >= 14 && status !== 'delivered' && status !== 'cancelled' &&
+      status !== 'returned' && status !== 'refunded') {
+    return {
+      tier: 'moderate',
+      reason: `Customer has been waiting ${totalWaitDays} days since ordering`,
+    };
+  }
+
+  if (status === 'delayed') {
+    return {
+      tier: 'moderate',
+      reason: 'Status: delayed, but within reasonable window',
+    };
   }
 
   // ==========================================================================
