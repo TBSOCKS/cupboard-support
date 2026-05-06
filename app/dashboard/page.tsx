@@ -95,6 +95,7 @@ const FRIENDLY_REASON: Record<string, string> = {
   auto_escalate_explicit_human: 'Customer asked for a human',
   auto_escalate_profanity: 'Profanity / abuse',
   auto_escalate_legal: 'Legal threats',
+  auto_escalate_continuation: 'Customer continuation post-handoff',
   low_confidence: 'Low triage confidence',
   agent_decision_problem_order: 'Problem order (delayed/lost)',
   agent_decision_outside_policy: 'Outside return policy',

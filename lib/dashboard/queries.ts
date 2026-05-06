@@ -34,7 +34,8 @@ export async function getVolumeByIntent(
     .from('analytics_events')
     .select('intent_category, created_at')
     .eq('event_type', 'triage_classification')
-    .gte('created_at', since);
+    .gte('created_at', since)
+    .limit(10000);
 
   if (error || !data) return [];
 
@@ -82,21 +83,24 @@ export async function getDeflectionByAgent(
   const supabase = createServerClient();
   const since = new Date(Date.now() - daysBack * 86400_000).toISOString();
 
-  // Get every conversation that was routed to a specialist
+  // Get every conversation that was routed to a specialist.
+  // Set limit explicitly - Supabase defaults to 1000.
   const { data: routed } = await supabase
     .from('analytics_events')
     .select('conversation_id, agent')
     .eq('event_type', 'agent_routed')
-    .gte('created_at', since);
+    .gte('created_at', since)
+    .limit(10000);
 
   if (!routed) return [];
 
-  // Get conversations table to see final status
-  const conversationIds = Array.from(new Set(routed.map((r) => r.conversation_id)));
+  // Fetch ALL conversations in the time window directly. Avoids the URL
+  // length issue that comes from passing many IDs in an .in() clause.
   const { data: convos } = await supabase
     .from('conversations')
     .select('id, status')
-    .in('id', conversationIds);
+    .gte('started_at', since)
+    .limit(10000);
 
   if (!convos) return [];
 
@@ -141,7 +145,8 @@ export async function getEscalationReasons(
     .select('reason')
     .in('event_type', ['escalation_triggered', 'handoff_to_human'])
     .gte('created_at', since)
-    .not('reason', 'is', null);
+    .not('reason', 'is', null)
+    .limit(10000);
 
   if (!data) return [];
 
@@ -182,7 +187,8 @@ export async function getDurationByAgent(
     .from('conversations')
     .select('id, current_agent, status, started_at, ended_at')
     .gte('started_at', since)
-    .not('ended_at', 'is', null);
+    .not('ended_at', 'is', null)
+    .limit(10000);
 
   if (!convos) return [];
 
@@ -192,7 +198,8 @@ export async function getDurationByAgent(
     .from('analytics_events')
     .select('conversation_id, agent')
     .eq('event_type', 'agent_routed')
-    .gte('created_at', since);
+    .gte('created_at', since)
+    .limit(10000);
 
   const routedAgent: Record<string, string> = {};
   for (const r of routed ?? []) routedAgent[r.conversation_id] = r.agent!;
@@ -250,7 +257,8 @@ export async function getToolCallStats(
     .from('analytics_events')
     .select('event_type, metadata')
     .in('event_type', ['tool_succeeded', 'tool_failed'])
-    .gte('created_at', since);
+    .gte('created_at', since)
+    .limit(10000);
 
   if (!data) return [];
 
@@ -299,18 +307,18 @@ export async function getDeflectionOpportunities(
     .from('analytics_events')
     .select('conversation_id, intent_category')
     .eq('event_type', 'triage_classification')
-    .gte('created_at', since);
+    .gte('created_at', since)
+    .limit(10000);
 
   if (!classifications) return [];
 
-  const conversationIds = Array.from(
-    new Set(classifications.map((c) => c.conversation_id))
-  );
-
+  // Fetch ALL conversations in the time window. Avoids URL length truncation
+  // when there are many IDs.
   const { data: convos } = await supabase
     .from('conversations')
     .select('id, status')
-    .in('id', conversationIds);
+    .gte('started_at', since)
+    .limit(10000);
 
   const convoStatus: Record<string, string> = {};
   for (const c of convos ?? []) convoStatus[c.id] = c.status;
@@ -364,7 +372,8 @@ export async function getHeadlineNumbers(
   const { data: convos } = await supabase
     .from('conversations')
     .select('status')
-    .gte('started_at', since);
+    .gte('started_at', since)
+    .limit(10000);
 
   if (!convos) {
     return {
